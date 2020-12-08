@@ -28,6 +28,7 @@
  *              Changes to auto-create hub/bridge devices
  *              Optimization around uncreated devices
  *  2020-12-01: Fix bug with how device data fields are set. Caused device commands to fail in hubitat v2.2.4
+ *  2020-05-11: Watchdog is now based on receipt of websocket messages. Should make reconnection more robust
  */
 
 import groovy.json.JsonSlurper
@@ -46,12 +47,15 @@ metadata {
     attribute "mode", "string"
     attribute "websocket", "string"
 
+    command "createDevices", []
+
+    command "websocketWatchdog", []
+
     //command "testCommand"
     command "setMode", [[name: "Set Mode*", type: "ENUM", description: "Set the Location's mode", constraints: ["Disarmed", "Home", "Away"]]]
   }
 
   preferences {
-    input name: "watchDogInterval", type: "number", range: 10..1440, title: "Watchdog Interval", description: "Duration in minutes between checks", defaultValue: 60, required: true
     input name: "suppressMissingDeviceMessages", type: "bool", title: "Suppress log messages for missing/deleted devices", defaultValue: false
     input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: true
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
@@ -109,6 +113,9 @@ def initialize() {
   logDebug "initialize()"
   //old method of getting websocket auth
   //parent.simpleRequest("ws-connect", [dni: device.deviceNetworkId])
+
+  initializeWatchdog()
+
   if (isWebSocketCapable()) {
     parent.simpleRequest("tickets", [dni: device.deviceNetworkId])
     state.seq = 0
@@ -118,7 +125,16 @@ def initialize() {
   }
 }
 
+def initializeWatchdog() {
+  unschedule(watchDogChecking) // For compatibility with old installs
+  unschedule(websocketWatchdog)
+  if ((getChildDevices()?.size() ?: 0) != 0) {
+    runEvery5Minutes(websocketWatchdog)
+  }
+}
+
 def updated() {
+  initialize()
   //refresh()
 }
 
@@ -162,7 +178,6 @@ def isTypePresent(kind) {
 
 def refresh(zid) {
   logDebug "refresh(${zid})"
-  unschedule()
   state.updatedDate = now()
   state.hubs?.each { hub ->
     if (hub.zid == zid || zid == null) {
@@ -170,27 +185,34 @@ def refresh(zid) {
       simpleRequest("refresh", [dst: hub.zid])
     }
   }
-  watchDogChecking()
   if (!state.alarmCapable) {
     parent.simpleRequest("mode-get", [mode: "disarmed", dni: device.deviceNetworkId])
   }
 }
 
+// For compatibility with old installs
 def watchDogChecking() {
-  logTrace "watchDogChecking(${watchDogInterval}) now:${now()} state.updatedDate:${state.updatedDate}"
-  if ((getChildDevices()?.size() ?: 0) == 0) {
-    logInfo "Watchdog checking canceled. No composite devices!"
+    logInfo "Old watchdog function called. Setting up new watchdog."
+    initializeWatchdog()
+}
+
+def websocketWatchdog() {
+  if (state?.lastWebSocketMsgTime == null) {
     return
   }
-  double timesSinceContact = (now() - state.updatedDate).abs() / 1000  //time since last update in seconds
-  logDebug "Watchdog checking started.  Time since last check: ${(timesSinceContact / 60).round(1)} minutes"
-  if ((timesSinceContact / 60) > (watchDogInterval ?: 30)) {
-    logDebug "Watchdog checking interval exceeded"
+
+  logTrace "websocketWatchdog(${watchDogInterval}) now:${now()} state.lastWebSocketMsgTime:${state.lastWebSocketMsgTime }"
+
+  double timeSinceContact = (now() - state.lastWebSocketMsgTime).abs() / 1000  // Time since last msg in seconds
+
+  logDebug "Watchdog checking started. Time since last websocket msg: ${(timeSinceContact / 60).round(1)} minutes"
+
+  if (timeSinceContact >= 60 * 5) {
+    log.warn "Watchdog checking interval exceeded"
     if (!device.currentValue("websocket").equals("connected")) {
       reconnectWebSocket()
     }
   }
-  runIn(watchDogInterval * 60, watchDogChecking)  //time in seconds
 }
 
 def childParse(type, params = []) {
@@ -475,6 +497,9 @@ def uninstalled() {
 def parse(String description) {
   //logDebug "parse(description)"
   //logTrace "description: ${description}"
+
+  state.lastWebSocketMsgTime = now()
+
   if (description.equals("2")) {
     //keep alive
     sendMsg("2")
