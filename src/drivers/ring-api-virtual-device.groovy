@@ -29,6 +29,7 @@
  *              Optimization around uncreated devices
  *  2020-12-01: Fix bug with how device data fields are set. Caused device commands to fail in hubitat v2.2.4
  *  2020-05-11: Watchdog is now based on receipt of websocket messages. Should make reconnection more robust
+ *              Remove unnecessary safe object traversal
  */
 
 import groovy.json.JsonSlurper
@@ -685,14 +686,15 @@ def extractDeviceInfos(json) {
         tmpAdapter = deviceJson.context.v1.adapter.v1
       }
       else if (deviceJson.adapter?.v1) {
-        tmpAdapter = deviceJson.adapter?.v1
+        tmpAdapter = deviceJson.adapter.v1
       }
 
       copy.signalStrength = tmpAdapter?.signalStrength
       copy.firmware = tmpAdapter?.firmwareVersion
-      if (tmpAdapter?.fingerprint?.firmware?.version)
-        copy.firmware = "${tmpAdapter?.fingerprint?.firmware?.version}.${tmpAdapter?.fingerprint?.firmware?.subversion}"
-      copy.hardwareVersion = tmpAdapter?.fingerprint?.hardwareVersion.toString()
+      if (tmpAdapter?.fingerprint?.firmware?.version) {
+        copy.firmware = "${tmpAdapter.fingerprint.firmware.version}.${tmpAdapter.fingerprint.firmware?.subversion}"
+        copy.hardwareVersion = tmpAdapter.fingerprint?.hardwareVersion.toString()
+      }
 
       def tmpContext = deviceJson.context?.v1
       copy.deviceName = tmpContext?.deviceName
@@ -707,7 +709,7 @@ def extractDeviceInfos(json) {
     if (deviceJson.impulse) {
       def tmpImpulse
       if (deviceJson.impulse?.v1[0]) {
-        tmpImpulse = deviceJson.impulse?.v1[0]
+        tmpImpulse = deviceJson.impulse.v1[0]
       }
       copy.impulseType = tmpImpulse.impulseType
 

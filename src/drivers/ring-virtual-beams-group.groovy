@@ -18,7 +18,7 @@
  *  2019-11-15: Import URL
  *  2020-02-12: Fixed odd behavior for when a group is added that has a member that isn't created
  *  2020-02-29: Changed namespace
- *
+ *  2020-12-10: Remove unnecessary safe object traversal
  */
 
 import groovy.json.JsonSlurper
@@ -93,7 +93,7 @@ def setValues(deviceInfo) {
     state.signalStrength = deviceInfo.lastCommTime
   }
   if (deviceInfo.state?.groupMembers) {
-    state.members = deviceInfo.state?.groupMembers?.collectEntries {
+    state.members = deviceInfo.state.groupMembers?.collectEntries {
       def d = parent.getChildByZID(it)
       if (d) {
         [(d.deviceNetworkId): d.label]

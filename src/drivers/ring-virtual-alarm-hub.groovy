@@ -21,7 +21,8 @@
  *              Added fireAlarm attribute to hold fire alarm status
  *  2020-02-29: Changed namespace
  *  2020-05-16: Fixed base station brightness command
- *
+ *  2020-05-11: Fix error when receiving incomplete networks update msg
+ *              Remove unnecessary safe object traversal
  */
 
 import groovy.json.JsonSlurper
@@ -238,14 +239,14 @@ def setValues(deviceInfo) {
       checkChanged("exitDelay", "inactive")
     }
   }
-  if (deviceInfo.state?.mode && syncRingToHsm && location.hsmStatus != RING_TO_HSM_MODE_MAP[MODES["${deviceInfo.state?.mode}"]].status) {
-    def hsmMode = RING_TO_HSM_MODE_MAP[MODES["${deviceInfo.state?.mode}"]].set
+  if (deviceInfo.state?.mode && syncRingToHsm && location.hsmStatus != RING_TO_HSM_MODE_MAP[MODES["${deviceInfo.state.mode}"]].status) {
+    def hsmMode = RING_TO_HSM_MODE_MAP[MODES["${deviceInfo.state.mode}"]].set
     logInfo "Setting HSM to ${hsmMode}"
-    logTrace "mode: ${MODES["${deviceInfo.state?.mode}"]} hsmStatus: ${location.hsmStatus}"
+    logTrace "mode: ${MODES["${deviceInfo.state.mode}"]} hsmStatus: ${location.hsmStatus}"
     sendLocationEvent(name: "hsmSetArm", value: hsmMode)
   }
-  if (deviceInfo.state?.siren && device.currentValue("alarm") != deviceInfo.state?.siren.state) {
-    def alarm = deviceInfo.state?.siren.state == "on" ? "siren" : "off"
+  if (deviceInfo.state?.siren && device.currentValue("alarm") != deviceInfo.state.siren.state) {
+    def alarm = deviceInfo.state.siren.state == "on" ? "siren" : "off"
     sendEvent(name: "alarm", value: alarm)
     if (alarm != "off") {
       sendEvent(name: "countdownTimeLeft", value: 0)
@@ -254,7 +255,7 @@ def setValues(deviceInfo) {
     }
   }
   if (deviceInfo.state?.alarmInfo) {
-    def entryDelay = deviceInfo.state?.alarmInfo.state == "entry-delay" ? "active" : "inactive"
+    def entryDelay = deviceInfo.state.alarmInfo.state == "entry-delay" ? "active" : "inactive"
     checkChanged("entryDelay", entryDelay)
 
     //TODO: after a small cooking mishap noticed that fire-alarm has a different alarmInfo.state than intrusion so I added an attribute and a
@@ -262,7 +263,7 @@ def setValues(deviceInfo) {
     //smoke alarm? or neither and it's just fine in the attribute since there will be a device for the smoke detector?  in fact, do I just
     //ignore this update because the smoke detector device will already get its own update?  or does it?
 
-    def fireAlarm = deviceInfo.state?.alarmInfo.state == "fire-alarm" ? "active" : "inactive"
+    def fireAlarm = deviceInfo.state.alarmInfo.state == "fire-alarm" ? "active" : "inactive"
     checkChanged("fireAlarm", fireAlarm)
 
     //TODO: work on faulted devices
@@ -272,7 +273,7 @@ def setValues(deviceInfo) {
     //}.collect()
   }
   if (deviceInfo.state?.transition) {
-    def exitDelay = deviceInfo.state?.transition == "exit" ? "active" : "inactive"
+    def exitDelay = deviceInfo.state.transition == "exit" ? "active" : "inactive"
     checkChanged("exitDelay", exitDelay)
     sendEvent(name: "countdownTimeLeft", value: deviceInfo.state?.timeLeft)
     sendEvent(name: "countdownTotal", value: deviceInfo.state?.total)
@@ -282,7 +283,7 @@ def setValues(deviceInfo) {
     checkChanged("exitDelay", exitDelay)
   }
   if (deviceInfo.state?.percent) {
-    log.warn "${device.label} is updating firmware: ${deviceInfo.state?.percent}% complete"
+    log.warn "${device.label} is updating firmware: ${deviceInfo.state.percent}% complete"
   }
   if (cancelAlertsOnDisarm && MODES["${deviceInfo.state?.mode}"] == "off") {
     sendLocationEvent(name: "hsmSetArm", value: "cancelAlerts")
@@ -314,21 +315,55 @@ def setValues(deviceInfo) {
   if (deviceInfo.firmware && device.getDataValue("firmware") != deviceInfo.firmware) {
     device.updateDataValue("firmware", deviceInfo.firmware)
   }
-  if (deviceInfo.state?.version && deviceInfo.state?.version?.softwareVersion
-    && device.getDataValue("softwareVersion") != deviceInfo.state?.version?.softwareVersion) {
-    device.updateDataValue("softwareVersion", deviceInfo.state?.version?.softwareVersion)
+  if (deviceInfo.state?.version?.softwareVersion
+    && device.getDataValue("softwareVersion") != deviceInfo.state.version.softwareVersion) {
+    device.updateDataValue("softwareVersion", deviceInfo.state.version.softwareVersion)
   }
   if (deviceInfo.state?.networks) {
-    def nw = deviceInfo.state?.networks
-    if (nw.ppp0) {
-      sendEvent(name: nw.ppp0.type.capitalize(), value: "${nw.ppp0.name} RSSI ${nw.ppp0.rssi}")
+    def nw = deviceInfo.state.networks
+
+    if (nw.ppp0 != null) {
+      if (nw.ppp0?.type) {
+        device.updateDataValue("ppp0Type", nw.ppp0.type.capitalize())
+      }
+      if (nw.ppp0?.name) {
+        device.updateDataValue("ppp0Name", nw.ppp0.name)
+      }
+      if (nw.ppp0?.rssi) {
+        device.updateDataValue("ppp0Rssi", nw.ppp0.rssi.toString())
+      }
+
+      def type = device.getDataValue("ppp0Type")
+      def name = device.getDataValue("ppp0Name")
+      def rssi = device.getDataValue("ppp0Rssi")
+
+      logInfo "ppp0 ${type} ${name} RSSI ${RSSI}"
+      sendEvent(name: type, value: "${name} RSSI ${rssi}")
+      state.ppp0 = "${name} RSSI ${rssi}"
     }
-    if (nw.wlan0) {
-      sendEvent(name: nw.wlan0.type.capitalize(), value: "${nw.wlan0.ssid} RSSI ${nw.wlan0.rssi}")
+
+    if (nw.wlan0 != null) {
+      if (nw.wlan0?.type) {
+        device.updateDataValue("wlan0Type", nw.wlan0.type.capitalize())
+      }
+      if (nw.wlan0?.ssid) {
+        device.updateDataValue("wlan0Ssid", nw.wlan0.ssid)
+      }
+      if (nw.wlan0?.rssi) {
+        device.updateDataValue("wlan0Rssi", nw.wlan0.rssi.toString())
+      }
+      
+      def type = device.getDataValue("wlan0Type")
+      def ssid = device.getDataValue("wlan0Ssid")
+      def rssi = device.getDataValue("wlan0Rssi")
+
+      logInfo "ppp0 ${type} ${ssid} RSSI ${RSSI}"
+      sendEvent(name: type, value: "${ssid} RSSI ${rssi}")
+      state.wlan0 = "${ssid} RSSI ${rssi}"
     }
   }
   if (deviceInfo.state?.batteryBackup) {
-    sendEvent(name: "batteryBackup", value: deviceInfo.state?.batteryBackup)
+    sendEvent(name: "batteryBackup", value: deviceInfo.state.batteryBackup)
   }
 }
 
