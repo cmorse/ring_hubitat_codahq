@@ -177,6 +177,13 @@
       "namespace": "ring-hubitat-codahq",
       "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/master/src/drivers/ring-virtual-switch.groovy",
       "required": false
+    },
+    {
+      "id": "d010d9fa-653d-4c48-aa0e-dad26d65d7ee",
+      "name": "Ring Virtual Panic BUtton",
+      "namespace": "ring-hubitat-codahq",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/master/src/drivers/ring-virtual-panic-button.groovy",
+      "required": false
     }
   ],
   "documentationLink": "https://github.com/HubitatCommunity/hubitat_ring_integration/blob/master/README.md"
