@@ -22,10 +22,8 @@
  *  2020-02-11: Added second battery support
  *  2020-02-29: Changed namespace
  *  2020-05-19: Snapshot preference
- *
  */
 
-import groovy.json.JsonSlurper
 import groovy.transform.Field
 
 metadata {
@@ -271,11 +269,7 @@ def motionOff(data) {
   childParse("dings", [msg: null])
 }
 
-def checkChanged(attribute, newStatus) {
-  checkChanged(attribute, newStatus, null)
-}
-
-def checkChanged(attribute, newStatus, unit) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
     sendEvent(name: attribute, value: newStatus, unit: unit)

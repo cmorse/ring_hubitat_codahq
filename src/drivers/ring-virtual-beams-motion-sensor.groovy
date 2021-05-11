@@ -20,10 +20,8 @@
  *  2020-02-12: Fixed battery % to show correctly in dashboards
  *  2020-02-29: Added checkin event
  *              Changed namespace
- *
+ *  2020-05-11: Reduce repetition in some of the code
  */
-
-import groovy.json.JsonSlurper
 
 metadata {
   definition(name: "Ring Virtual Beams Motion Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
@@ -65,33 +63,25 @@ def setValues(deviceInfo) {
   logDebug "updateDevice(deviceInfo)"
   logTrace "deviceInfo: ${deviceInfo}"
 
-  if (deviceInfo.state && deviceInfo.state.motionStatus != null) {
-    def motion = deviceInfo.state.motionStatus == "clear" ? "inactive" : "active"
-    checkChanged("motion", motion)
+  if (deviceInfo?.state?.motionStatus != null) {
+    checkChanged("motion", deviceInfo.state.motionStatus == "clear" ? "inactive" : "active")
   }
   if (deviceInfo.batteryLevel != null) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
   if (deviceInfo.tamperStatus) {
-    def tamper = deviceInfo.tamperStatus == "tamper" ? "detected" : "clear"
-    checkChanged("tamper", tamper)
+    checkChanged("tamper", deviceInfo.tamperStatus == "tamper" ? "detected" : "clear")
   }
   if (deviceInfo.lastUpdate != state.lastUpdate) {
-    state.lastUpdate = deviceInfo.lastUpdate
     sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
   }
-  if (deviceInfo.impulseType) {
-    state.impulseType = deviceInfo.impulseType
+  
+  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
+    if (deviceInfo[key]) {
+      state[key] = deviceInfo[key]
+    }
   }
-  if (deviceInfo.lastCommTime) {
-    state.signalStrength = deviceInfo.lastCommTime
-  }
-  if (deviceInfo.nextExpectedWakeup) {
-    state.nextExpectedWakeup = deviceInfo.nextExpectedWakeup
-  }
-  if (deviceInfo.signalStrength) {
-    state.signalStrength = deviceInfo.signalStrength
-  }
+  
   if (deviceInfo.firmware && device.getDataValue("firmware") != deviceInfo.firmware) {
     device.updateDataValue("firmware", deviceInfo.firmware)
   }
@@ -100,11 +90,7 @@ def setValues(deviceInfo) {
   }
 }
 
-def checkChanged(attribute, newStatus) {
-  checkChanged(attribute, newStatus, null)
-}
-
-def checkChanged(attribute, newStatus, unit) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
     sendEvent(name: attribute, value: newStatus, unit: unit)

@@ -18,10 +18,7 @@
  *  2019-11-15: Import URL
  *  2019-12-20: API changes to accommodate Ring upstream API changes
  *  2020-02-29: Changed namespace
- *
  */
-
-import groovy.json.JsonSlurper
 
 metadata {
   definition(name: "Ring Virtual Chime", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",

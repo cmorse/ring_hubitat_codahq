@@ -30,6 +30,7 @@
  *  2020-12-01: Fix bug with how device data fields are set. Caused device commands to fail in hubitat v2.2.4
  *  2020-05-11: Watchdog is now based on receipt of websocket messages. Should make reconnection more robust
  *              Remove unnecessary safe object traversal
+ *              Reduce repetition in some of the code
  */
 
 import groovy.json.JsonSlurper
@@ -613,144 +614,106 @@ def extractDeviceInfos(json) {
 
   def deviceInfos = []
 
-  def orig = json
-
-  def jsonSlurper = new JsonSlurper()
-  def jsonString = '''
-{
-"deviceType": ""
-}
-'''
-
   //"lastUpdate": "",
   //"contact": "closed",
   //"motion": "inactive"
 
-  def returnResult = jsonSlurper.parseText(jsonString)
-
-  returnResult.src = json.src
-  returnResult.msg = json.msg
+  def defaultDeviceInfo = [
+    deviceType: '',
+    src: json.src,
+    msg: json.msg,
+  ]
 
   if (json.context) {
-    def tmpContext = json.context
-    returnResult.eventOccurredTsMs = tmpContext.eventOccurredTsMs
-    returnResult.level = tmpContext.eventLevel
-    returnResult.affectedEntityType = tmpContext.affectedEntityType
-    returnResult.affectedEntityId = tmpContext.affectedEntityId
-    returnResult.affectedEntityName = tmpContext.affectedEntityName
-    returnResult.accountId = tmpContext.accountId
-    returnResult.assetId = tmpContext.assetId
-    returnResult.assetKind = tmpContext.assetKind
+    List keys = ['accountId', 'affectedEntityType', 'affectedEntityId', 'affectedEntityName', 'assetId', 'assetKind', 'eventOccurredTsMs']
+    for (key in keys) {
+      defaultDeviceInfo[key] = json.context[key]
+    }
+
+    defaultDeviceInfo.level = json.context.eventLevel
   }
 
   //iterate each device
   json.body.each {
-    def copy = new JsonSlurper().parseText(JsonOutput.toJson(returnResult))
+    def curDeviceInfo = defaultDeviceInfo.clone()
 
     def deviceJson = it
     //logTrace "now deviceJson: ${JsonOutput.prettyPrint(JsonOutput.toJson(deviceJson))}"
     if (!deviceJson) {
-      deviceInfos << copy
+      deviceInfos << curDeviceInfo
     }
 
-    if (deviceJson.general) {
-      def tmpGeneral
-      if (deviceJson.general.v1) {
-        tmpGeneral = deviceJson.general.v1
+    if (deviceJson?.general) {
+      def tmpGeneral = deviceJson.general?.v1 ?: deviceJson.general?.v2
+
+      List keys = ['acStatus', 'adapterType', 'batteryLevel', 'batteryStatus', 'deviceType', 'fingerprint', 'lastUpdate',
+                   'lastCommTime', 'manufacturerName', 'name', 'nextExpectedWakeup', 'roomId', 'serialNumber', 'tamperStatus', 'zid']
+      for (key in keys) {
+        curDeviceInfo[key] = tmpGeneral[key]
       }
-      else {
-        tmpGeneral = deviceJson.general.v2
-      }
-      copy.lastUpdate = tmpGeneral.lastUpdate
-      copy.lastCommTime = tmpGeneral.lastCommTime
-      copy.nextExpectedWakeup = tmpGeneral.nextExpectedWakeup
-      copy.deviceType = tmpGeneral.deviceType
-      copy.adapterType = tmpGeneral.adapterType
-      copy.zid = tmpGeneral.zid
-      copy.roomId = tmpGeneral.roomId
-      copy.serialNumber = tmpGeneral.serialNumber
-      copy.fingerprint = tmpGeneral.fingerprint
-      copy.manufacturerName = tmpGeneral.manufacturerName
-      copy.tamperStatus = tmpGeneral.tamperStatus
-      copy.name = tmpGeneral.name
-      copy.acStatus = tmpGeneral.acStatus
-      copy.batteryLevel = tmpGeneral.batteryLevel
-      copy.batteryStatus = tmpGeneral.batteryStatus
+
       if (tmpGeneral.componentDevices) {
-        copy.componentDevices = tmpGeneral.componentDevices
+        curDeviceInfo.componentDevices = tmpGeneral.componentDevices
       }
     }
-    if (deviceJson.context || deviceJson.adapter) {
-      def tmpAdapter
-      if (deviceJson.context?.v1?.adapter?.v1) {
-        tmpAdapter = deviceJson.context.v1.adapter.v1
-      }
-      else if (deviceJson.adapter?.v1) {
-        tmpAdapter = deviceJson.adapter.v1
-      }
+    if (deviceJson?.context || deviceJson?.adapter) {
+      def tmpAdapter = deviceJson.context?.v1?.adapter?.v1 ?: deviceJson.adapter?.v1
 
-      copy.signalStrength = tmpAdapter?.signalStrength
-      copy.firmware = tmpAdapter?.firmwareVersion
+      curDeviceInfo.signalStrength = tmpAdapter?.signalStrength
+      curDeviceInfo.firmware = tmpAdapter?.firmwareVersion
       if (tmpAdapter?.fingerprint?.firmware?.version) {
-        copy.firmware = "${tmpAdapter.fingerprint.firmware.version}.${tmpAdapter.fingerprint.firmware?.subversion}"
-        copy.hardwareVersion = tmpAdapter.fingerprint?.hardwareVersion.toString()
+        curDeviceInfo.firmware = "${tmpAdapter.fingerprint.firmware.version}.${tmpAdapter.fingerprint.firmware?.subversion}"
+        curDeviceInfo.hardwareVersion = tmpAdapter.fingerprint?.hardwareVersion?.toString()
       }
 
       def tmpContext = deviceJson.context?.v1
-      copy.deviceName = tmpContext?.deviceName
-      copy.roomName = tmpContext?.roomName
-      if (copy.batteryStatus == null && tmpContext.batteryStatus != null)
-        copy.batteryStatus = tmpContext.batteryStatus
-      if ("alarm.smoke" == copy.deviceType && tmpContext?.device?.v1?.alarmStatus) {
-        copy.state = jsonSlurper.parseText('{"smoke": "" }')
-        copy.state.smoke = tmpContext.device.v1
+      curDeviceInfo.deviceName = tmpContext?.deviceName
+      curDeviceInfo.roomName = tmpContext?.roomName
+      if (curDeviceInfo.batteryStatus == null && tmpContext.batteryStatus != null) {
+        curDeviceInfo.batteryStatus = tmpContext.batteryStatus
+      }
+      if (curDeviceInfo.deviceType == "alarm.smoke" && tmpContext?.device?.v1?.alarmStatus) {
+        curDeviceInfo.state = [smoke: tmpContext.device.v1]
       }
     }
-    if (deviceJson.impulse) {
-      def tmpImpulse
-      if (deviceJson.impulse?.v1[0]) {
-        tmpImpulse = deviceJson.impulse.v1[0]
-      }
-      copy.impulseType = tmpImpulse.impulseType
+    if (deviceJson?.impulse) {
+      def tmpImpulse = deviceJson.impulse?.v1[0]
 
-      copy.impulses = deviceJson.impulse.v1.collectEntries {
+      curDeviceInfo.impulseType = tmpImpulse.impulseType
+
+      curDeviceInfo.impulses = deviceJson.impulse.v1.collectEntries {
         [(it.impulseType): it.data]
       }
 
     }
 
-    //if (deviceJson.adapter) {
-    //  copy.signalStrength = [deviceJson.adapter.v1]
-    //}
-
-    if (deviceJson.device) {
+    if (deviceJson?.device) {
       tmpDevice
       //logTrace "what has this device? ${tmpDevice}"
       if (deviceJson.device.v1) {
-        copy.state = deviceJson.device.v1
-        //copy.faulted = tmpDevice.faulted
-        //copy.mode = tmpDevice.mode
+        curDeviceInfo.state = deviceJson.device.v1
+        //curDeviceInfo.faulted = tmpDevice.faulted
+        //curDeviceInfo.mode = tmpDevice.mode
       }
 
     }
 
     //likely a passthru
-    if (deviceJson.data) {
-      assert returnResult.msg == 'Passthru'
-      copy.state = deviceJson.data
-      copy.zid = copy.assetId
-      copy.deviceType = deviceJson.type
+    if (deviceJson?.data) {
+      assert curDeviceInfo.msg == 'Passthru'
+      curDeviceInfo.state = deviceJson.data
+      curDeviceInfo.zid = curDeviceInfo.assetId
+      curDeviceInfo.deviceType = deviceJson.type
     }
 
-    deviceInfos << copy
+    deviceInfos << curDeviceInfo
 
-    //if (copy.deviceType == "range-extender.zwave") {
+    //if (curDeviceInfo.deviceType == "range-extender.zwave") {
     //  log.warn "range-extender.zwave message: ${JsonOutput.prettyPrint(JsonOutput.toJson(deviceJson))}"
     //}
-    if (copy.deviceType == null) {
+    if (curDeviceInfo.deviceType == null) {
       log.warn "null device type message?: ${JsonOutput.prettyPrint(JsonOutput.toJson(deviceJson))}"
     }
-
   }
 
   logTrace "found ${deviceInfos.size()} devices"
@@ -763,10 +726,7 @@ def createDevice(deviceInfo) {
   logTrace "deviceInfo: ${deviceInfo}"
 
   //quick check
-  if (deviceInfo == null
-    || deviceInfo.deviceType == null
-    || DEVICE_TYPES[deviceInfo.deviceType] == null
-    || DEVICE_TYPES[deviceInfo.deviceType].hidden) {
+  if (deviceInfo?.deviceType == null || DEVICE_TYPES.get(deviceInfo.deviceType)?.hidden) {
     logDebug "Not a creatable device. ${deviceInfo.deviceType}"
     return
   }

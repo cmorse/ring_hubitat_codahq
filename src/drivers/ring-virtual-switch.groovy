@@ -17,10 +17,8 @@
  *  2019-11-12: Initial
  *  2019-11-15: Import URL
  *  2020-02-29: Changed namespace
- *
+ *  2020-05-11: Reduce repetition in some of the code
  */
-
-import groovy.json.JsonSlurper
 
 metadata {
   definition(name: "Ring Virtual Switch", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
@@ -76,36 +74,25 @@ def setValues(deviceInfo) {
     checkChanged("battery", deviceInfo.batteryLevel)
   }
   if (deviceInfo.tamperStatus) {
-    def tamper = deviceInfo.tamperStatus == "tamper" ? "detected" : "clear"
-    checkChanged("tamper", tamper)
-  }
-  if (deviceInfo.lastUpdate) {
-    state.lastUpdate = deviceInfo.lastUpdate
-  }
-  if (deviceInfo.impulseType) {
-    state.impulseType = deviceInfo.impulseType
-  }
-  if (deviceInfo.lastCommTime) {
-    state.signalStrength = deviceInfo.lastCommTime
-  }
-  if (deviceInfo.nextExpectedWakeup) {
-    state.nextExpectedWakeup = deviceInfo.nextExpectedWakeup
-  }
-  if (deviceInfo.signalStrength) {
-    state.signalStrength = deviceInfo.signalStrength
-  }
-  if (deviceInfo.firmware && device.getDataValue("firmware") != deviceInfo.firmware) {
-    device.updateDataValue("firmware", deviceInfo.firmware)
-  }
-  if (deviceInfo.hardwareVersion && device.getDataValue("hardwareVersion") != deviceInfo.hardwareVersion) {
-    device.updateDataValue("hardwareVersion", deviceInfo.hardwareVersion)
+    checkChanged("tamper", deviceInfo.tamperStatus == "tamper" ? "detected" : "clear")
   }
 
+  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
+    if (deviceInfo[key]) {
+      state[key] = deviceInfo[key]
+    }
+  }
+  
+  for(key in ['firmware', 'hardwareVersion']) {
+    if (deviceInfo[key] && device.getDataValue(key) != deviceInfo[key]) {
+      device.updateDataValue(key, deviceInfo[key])
+    }
+  }
 }
 
-def checkChanged(attribute, newStatus) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus)
+    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
 }

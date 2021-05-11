@@ -24,10 +24,8 @@
  *  2020-02-12: Fixed battery % to show correctly in dashboards
  *  2020-02-29: Added checkin event
  *              Changed namespace
- *
+ *  2020-05-11: Reduce repetition in some of the code
  */
-
-import groovy.json.JsonSlurper
 
 metadata {
   definition(name: "Ring Virtual Keypad", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
@@ -70,8 +68,8 @@ def logTrace(msg) {
 
 def setVolume(vol) {
   logDebug "Attempting to set volume."
-  vol > 100 ? 100 : vol
-  vol < 0 ? 0 : vol
+  vol = vol > 100 ? 100 : vol
+  vol = vol < 0 ? 0 : vol
   if (vol == 0 && !isMuted()) {
     state.prevVolume = device.currentValue("volume")
     sendEvent(name: "mute", value: "muted")
@@ -151,10 +149,6 @@ def setValues(deviceInfo) {
   logDebug "updateDevice(deviceInfo)"
   logTrace "deviceInfo: ${deviceInfo}"
 
-  if (deviceInfo.state && deviceInfo.state.volume != null) {
-    checkChanged("volume", (deviceInfo.state.volume * 100) as Integer)
-  }
-
   //TODO: probably only when mode changes?
   //if (params.mode && device.currentValue("mode") != params.mode) {
   //  logInfo "Alarm mode for device ${device.label} is ${params.mode}"
@@ -163,48 +157,39 @@ def setValues(deviceInfo) {
 
   if (deviceInfo.impulseType == "keypad.motion") {
     checkChanged("motion", "active")
-    //The inactive message almostm never comes reliably.  for now we'll schedule it off
+    //The inactive message almost never comes reliably. for now we'll schedule it off
     unschedule()
     runIn(motionTimeout.toInteger(), stopMotion)
   }
-  if (deviceInfo.state && deviceInfo.state.brightness != null) {
-    checkChanged("brightness", (deviceInfo.state.brightness * 100) as Integer)
+  
+  for(key in ['brightness', 'volume']) {
+    if (deviceInfo?.state?.get(key) != null) {
+      checkChanged(key, (deviceInfo.state[key] * 100) as Integer)
+    }
   }
+  
   if (deviceInfo.batteryLevel != null) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
-  if (deviceInfo.lastUpdate) {
-    state.lastUpdate = deviceInfo.lastUpdate
-  }
-  if (deviceInfo.impulseType) {
-    state.impulseType = deviceInfo.impulseType
-    if (deviceInfo.impulseType == "comm.heartbeat") {
-      sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
+
+  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
+    if (deviceInfo[key]) {
+      state[key] = deviceInfo[key]
     }
   }
-  if (deviceInfo.lastCommTime) {
-    state.signalStrength = deviceInfo.lastCommTime
+  
+  if (deviceInfo?.impulseType == "comm.heartbeat") {
+    sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
   }
-  if (deviceInfo.nextExpectedWakeup) {
-    state.nextExpectedWakeup = deviceInfo.nextExpectedWakeup
+  
+  for(key in ['firmware', 'hardwareVersion']) {
+    if (deviceInfo[key] && device.getDataValue(key) != deviceInfo[key]) {
+      device.updateDataValue(key, deviceInfo[key])
+    }
   }
-  if (deviceInfo.signalStrength) {
-    state.signalStrength = deviceInfo.signalStrength
-  }
-  if (deviceInfo.firmware && device.getDataValue("firmware") != deviceInfo.firmware) {
-    device.updateDataValue("firmware", deviceInfo.firmware)
-  }
-  if (deviceInfo.hardwareVersion && device.getDataValue("hardwareVersion") != deviceInfo.hardwareVersion) {
-    device.updateDataValue("hardwareVersion", deviceInfo.hardwareVersion)
-  }
-
 }
 
-def checkChanged(attribute, newStatus) {
-  checkChanged(attribute, newStatus, null)
-}
-
-def checkChanged(attribute, newStatus, unit) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
     sendEvent(name: attribute, value: newStatus, unit: unit)
@@ -225,5 +210,4 @@ def childParse(type, params = []) {
   logDebug "childParse(type, params)"
   logTrace "type ${type}"
   logTrace "params ${params}"
-
 }

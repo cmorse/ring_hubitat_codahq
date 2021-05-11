@@ -20,9 +20,9 @@
  *              Changed namespace
  *  2020-05-11: Fix error when receiving incomplete networks update msg
  *              Remove unnecessary safe object traversal
+ *              Reduce repetition in some of the code
  */
 
-import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 metadata {
@@ -31,7 +31,9 @@ metadata {
     capability "Refresh"
     capability "Sensor"
 
+    attribute "cellular", "string"
     attribute "lastCheckin", "string"
+    attribute "wifi", "string"
 
     command "createDevices"
   }
@@ -69,19 +71,16 @@ def setValues(deviceInfo) {
   logDebug "updateDevice(deviceInfo)"
   logTrace "deviceInfo: ${JsonOutput.prettyPrint(JsonOutput.toJson(deviceInfo))}"
 
-  if (deviceInfo.lastUpdate) {
-    state.lastUpdate = deviceInfo.lastUpdate
+  for(key in ['impulseType', 'lastCommTime', 'lastUpdate']) {
+    if (deviceInfo[key]) {
+      state[key] = deviceInfo[key]
+    }
   }
-  if (deviceInfo.impulseType) {
-    state.impulseType = deviceInfo.impulseType
-  }
+
   if (deviceInfo.deviceType == "halo-stats.latency" && deviceInfo.state?.status == "success") {
     sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
   }
-  if (deviceInfo.lastCommTime) {
-    state.signalStrength = deviceInfo.lastCommTime
-  }
-  if (deviceInfo.state?.networks?.wlan0) {
+  if (deviceInfo.state?.networks) {
     def nw = deviceInfo.state.networks
 
     if (nw.ppp0 != null) {
@@ -100,7 +99,7 @@ def setValues(deviceInfo) {
       def rssi = device.getDataValue("ppp0Rssi")
 
       logInfo "ppp0 ${type} ${name} RSSI ${RSSI}"
-      sendEvent(name: type, value: "${name} RSSI ${rssi}")
+      checkChanged('cellular', "${name} RSSI ${rssi}")
       state.ppp0 = "${name} RSSI ${rssi}"
     }
 
@@ -119,20 +118,18 @@ def setValues(deviceInfo) {
       def ssid = device.getDataValue("wlan0Ssid")
       def rssi = device.getDataValue("wlan0Rssi")
 
-      logInfo "ppp0 ${type} ${ssid} RSSI ${RSSI}"
-      sendEvent(name: type, value: "${ssid} RSSI ${rssi}")
+      logInfo "wlan0 ${type} ${ssid} RSSI ${RSSI}"
+      checkChanged('wifi', "${ssid} RSSI ${rssi}")
       state.wlan0 = "${ssid} RSSI ${rssi}"
     }
   }
   if (deviceInfo.deviceType == "adapter.ringnet" && deviceInfo.state?.version) {
-    if (deviceInfo.state?.version?.nordicFirmwareVersion && device.getDataValue("nordicFirmwareVersion") != deviceInfo.state?.version?.nordicFirmwareVersion) {
-      device.updateDataValue("nordicFirmwareVersion", deviceInfo.state?.version?.nordicFirmwareVersion)
-    }
-    if (deviceInfo.state?.version?.buildNumber && device.getDataValue("buildNumber") != deviceInfo.state?.version?.buildNumber) {
-      device.updateDataValue("buildNumber", deviceInfo.state?.version?.buildNumber)
-    }
-    if (deviceInfo.state?.version?.softwareVersion && device.getDataValue("softwareVersion") != deviceInfo.state?.version?.softwareVersion) {
-      device.updateDataValue("softwareVersion", deviceInfo.state?.version?.softwareVersion)
+    def version = deviceInfo.state.version
+      
+    for(key in ['buildNumber', 'nordicFirmwareVersion', 'softwareVersion']) {
+      if (version[key] && device.getDataValue(key) != version[key]) {
+        device.updateDataValue(key, version[key])
+      }
     }
   }
   else if (deviceInfo.state?.version) {
@@ -142,10 +139,10 @@ def setValues(deviceInfo) {
   }
 }
 
-def checkChanged(attribute, newStatus) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus)
+    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
 }
 

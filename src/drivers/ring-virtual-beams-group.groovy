@@ -18,10 +18,10 @@
  *  2019-11-15: Import URL
  *  2020-02-12: Fixed odd behavior for when a group is added that has a member that isn't created
  *  2020-02-29: Changed namespace
- *  2020-12-10: Remove unnecessary safe object traversal
+ *  2020-05-11: Remove unnecessary safe object traversal
+ *              Reduce repetition in some of the code
  */
 
-import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 metadata {
@@ -75,23 +75,19 @@ def setValues(deviceInfo) {
   logDebug "updateDevice(deviceInfo)"
   logTrace "deviceInfo: ${JsonOutput.prettyPrint(JsonOutput.toJson(deviceInfo))}"
 
-  if (deviceInfo.state && deviceInfo.state.motionStatus != null) {
-    def motion = deviceInfo.state.motionStatus == "clear" ? "inactive" : "active"
-    checkChanged("motion", motion)
+  if (deviceInfo?.state?.motionStatus != null) {
+    checkChanged("motion", deviceInfo.state.motionStatus == "clear" ? "inactive" : "active")
   }
-  if (deviceInfo.state && deviceInfo.state.on != null) {
-    def switchState = deviceInfo.state.on ? "on" : "off"
-    checkChanged("switch", switchState)
+  if (deviceInfo?.state?.on != null) {
+    checkChanged("switch", deviceInfo.state.on ? "on" : "off")
   }
-  if (deviceInfo.lastUpdate) {
-    state.lastUpdate = deviceInfo.lastUpdate
+  
+  for(key in ['impulseType', 'lastCommTime', 'lastUpdate']) {
+    if (deviceInfo[key]) {
+      state[key] = deviceInfo[key]
+    }
   }
-  if (deviceInfo.impulseType) {
-    state.impulseType = deviceInfo.impulseType
-  }
-  if (deviceInfo.lastCommTime) {
-    state.signalStrength = deviceInfo.lastCommTime
-  }
+
   if (deviceInfo.state?.groupMembers) {
     state.members = deviceInfo.state.groupMembers?.collectEntries {
       def d = parent.getChildByZID(it)
@@ -105,9 +101,9 @@ def setValues(deviceInfo) {
   }
 }
 
-def checkChanged(attribute, newStatus) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus)
+    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
 }

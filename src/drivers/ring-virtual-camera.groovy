@@ -20,10 +20,7 @@
  *  2019-11-18: Differentiated between ring and motion events
  *  2020-02-29: Changed namespace
  *  2020-05-19: Snapshot preference
- *
  */
-
-import groovy.json.JsonSlurper
 
 metadata {
   definition(name: "Ring Virtual Camera", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
@@ -139,9 +136,9 @@ def motionOff(data) {
   childParse("dings", [msg: null])
 }
 
-def checkChanged(attribute, newStatus) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus)
+    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
 }

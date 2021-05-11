@@ -21,10 +21,8 @@
  *              Changed namespace
  *  2020-05-06: Added "PowerSource" capability
  *              Changed acStatus values to match closer to Ring's documentation labels for those alerts
- *
+ *  2020-05-11: Reduce repetition in some of the code
  */
-
-import groovy.json.JsonSlurper
 
 metadata {
   definition(name: "Ring Virtual Alarm Range Extender", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
@@ -67,52 +65,36 @@ def setValues(deviceInfo) {
   logDebug "updateDevice(deviceInfo)"
   logTrace "deviceInfo: ${deviceInfo}"
 
-  if (deviceInfo.acStatus && deviceInfo.acStatus != null) {
-    def acStatus = deviceInfo.acStatus == "ok" ? "connected" : (deviceInfo.acStatus == "error" ? "disconnected" : "brownout")
-    checkChanged("acStatus", acStatus)
-    def powerSource = deviceInfo.acStatus == "ok" ? "mains" : (deviceInfo.acStatus == "error" ? "battery" : "unknown")
-    checkChanged("powerSource", powerSource)
+  if (deviceInfo?.acStatus != null) {
+    def acStatus = deviceInfo.acStatus
+    checkChanged("acStatus", acStatus == "ok" ? "connected" : (acStatus == "error" ? "disconnected" : "brownout"))
+    checkChanged("powerSource", acStatus == "ok" ? "mains" : (acStatus == "error" ? "battery" : "unknown"))
   }
-  //"batteryStatus": "full",
-  //impulseType == battery.changed-out-of-band
   if (deviceInfo.batteryLevel != null) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
   if (deviceInfo.batteryStatus != null /*&& deviceInfo.impulses?."battery.changed-out-of-band" != null*/) {
     checkChanged("batteryStatus", deviceInfo.batteryStatus)
   }
-  if (deviceInfo.lastUpdate) {
-    state.lastUpdate = deviceInfo.lastUpdate
-  }
-  if (deviceInfo.impulseType) {
-    state.impulseType = deviceInfo.impulseType
-    if (deviceInfo.impulseType == "comm.heartbeat") {
-      sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
+  
+  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
+    if (deviceInfo[key]) {
+      state[key] = deviceInfo[key]
     }
   }
-  if (deviceInfo.lastCommTime) {
-    state.signalStrength = deviceInfo.lastCommTime
+  
+  if (deviceInfo?.impulseType == "comm.heartbeat") {
+    sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
   }
-  if (deviceInfo.nextExpectedWakeup) {
-    state.nextExpectedWakeup = deviceInfo.nextExpectedWakeup
+  
+  for(key in ['firmware', 'hardwareVersion']) {
+    if (deviceInfo[key] && device.getDataValue(key) != deviceInfo[key]) {
+      device.updateDataValue(key, deviceInfo[key])
+    }
   }
-  if (deviceInfo.signalStrength) {
-    state.signalStrength = deviceInfo.signalStrength
-  }
-  if (deviceInfo.firmware && device.getDataValue("firmware") != deviceInfo.firmware) {
-    device.updateDataValue("firmware", deviceInfo.firmware)
-  }
-  if (deviceInfo.hardwareVersion && device.getDataValue("hardwareVersion") != deviceInfo.hardwareVersion) {
-    device.updateDataValue("hardwareVersion", deviceInfo.hardwareVersion)
-  }
-
 }
 
-def checkChanged(attribute, newStatus) {
-  checkChanged(attribute, newStatus, null)
-}
-
-def checkChanged(attribute, newStatus, unit) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
     sendEvent(name: attribute, value: newStatus, unit: unit)

@@ -25,7 +25,6 @@
  *              Remove unnecessary safe object traversal
  */
 
-import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 metadata {
@@ -35,14 +34,19 @@ metadata {
     capability "Audio Volume"
     capability "Alarm"
     capability "Refresh"
+    capability "PowerSource"
 
-    attribute "mode", "string"
-    attribute "entryDelay", "string"
-    attribute "exitDelay", "string"
-    attribute "fireAlarm", "string"
+    attribute "acStatus", "string"
+    attribute "batteryBackup", "string"
     attribute "brightness", "number"
     attribute "countdownTimeLeft", "number"
     attribute "countdownTotal", "number"
+    attribute "cellular", "string"
+    attribute "entryDelay", "string"
+    attribute "exitDelay", "string"
+    attribute "fireAlarm", "string"
+    attribute "mode", "string"
+    attribute "wifi", "string"
 
     command "setBrightness", [[name: "Set LED Brightness*", type: "NUMBER", range: "0..100", description: "Choose a value between 0 and 100"]]
     command "setMode", [[name: "Set Mode*", type: "ENUM", description: "Set the Ring Alarm's mode", constraints: ["Disarmed", "Home", "Away"]]]
@@ -255,16 +259,14 @@ def setValues(deviceInfo) {
     }
   }
   if (deviceInfo.state?.alarmInfo) {
-    def entryDelay = deviceInfo.state.alarmInfo.state == "entry-delay" ? "active" : "inactive"
-    checkChanged("entryDelay", entryDelay)
+    checkChanged("entryDelay", deviceInfo.state.alarmInfo.state == "entry-delay" ? "active" : "inactive")
 
     //TODO: after a small cooking mishap noticed that fire-alarm has a different alarmInfo.state than intrusion so I added an attribute and a
     //case for it while I decide what to do with it long term.  should this also set the "alarm" attribute or should the base also implement
     //smoke alarm? or neither and it's just fine in the attribute since there will be a device for the smoke detector?  in fact, do I just
     //ignore this update because the smoke detector device will already get its own update?  or does it?
 
-    def fireAlarm = deviceInfo.state.alarmInfo.state == "fire-alarm" ? "active" : "inactive"
-    checkChanged("fireAlarm", fireAlarm)
+    checkChanged("fireAlarm", deviceInfo.state.alarmInfo.state == "fire-alarm" ? "active" : "inactive")
 
     //TODO: work on faulted devices
     //state.faultedDevices.each {
@@ -273,8 +275,7 @@ def setValues(deviceInfo) {
     //}.collect()
   }
   if (deviceInfo.state?.transition) {
-    def exitDelay = deviceInfo.state.transition == "exit" ? "active" : "inactive"
-    checkChanged("exitDelay", exitDelay)
+    checkChanged("exitDelay", deviceInfo.state.transition == "exit" ? "active" : "inactive")
     sendEvent(name: "countdownTimeLeft", value: deviceInfo.state?.timeLeft)
     sendEvent(name: "countdownTotal", value: deviceInfo.state?.total)
   }
@@ -288,30 +289,24 @@ def setValues(deviceInfo) {
   if (cancelAlertsOnDisarm && MODES["${deviceInfo.state?.mode}"] == "off") {
     sendLocationEvent(name: "hsmSetArm", value: "cancelAlerts")
   }
-  if (deviceInfo.state?.volume != null) {
-    checkChanged("volume", (deviceInfo.state.volume * 100) as Integer)
+  if (deviceInfo?.acStatus != null) {
+    def acStatus = deviceInfo.acStatus
+    checkChanged("acStatus", acStatus == "ok" ? "connected" : (acStatus == "error" ? "disconnected" : "brownout"))
+    checkChanged("powerSource", acStatus == "ok" ? "mains" : (acStatus == "error" ? "battery" : "unknown"))
   }
-  if (deviceInfo.batteryLevel != null) {
-    checkChanged("battery", deviceInfo.batteryLevel)
+  
+  for(key in ['brightness', 'volume']) {
+    if (deviceInfo?.state?.get(key) != null) {
+      checkChanged(key, (deviceInfo.state[key] * 100) as Integer)
+    }
   }
-  if (deviceInfo.state?.brightness != null) {
-    checkChanged("brightness", (deviceInfo.state.brightness * 100) as Integer)
-  }
-  if (deviceInfo.lastUpdate) {
-    state.lastUpdate = deviceInfo.lastUpdate
-  }
-  if (deviceInfo.impulseType) {
-    state.impulseType = deviceInfo.impulseType
-  }
-  if (deviceInfo.lastCommTime) {
-    state.signalStrength = deviceInfo.lastCommTime
-  }
-  if (deviceInfo.nextExpectedWakeup) {
-    state.nextExpectedWakeup = deviceInfo.nextExpectedWakeup
-  }
-  if (deviceInfo.signalStrength) {
-    state.signalStrength = deviceInfo.signalStrength
-  }
+  
+  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
+    if (deviceInfo[key]) {
+      state[key] = deviceInfo[key]
+    }
+  }  
+  
   if (deviceInfo.firmware && device.getDataValue("firmware") != deviceInfo.firmware) {
     device.updateDataValue("firmware", deviceInfo.firmware)
   }
@@ -338,7 +333,7 @@ def setValues(deviceInfo) {
       def rssi = device.getDataValue("ppp0Rssi")
 
       logInfo "ppp0 ${type} ${name} RSSI ${RSSI}"
-      sendEvent(name: type, value: "${name} RSSI ${rssi}")
+      checkChanged('cellular', "${name} RSSI ${rssi}")
       state.ppp0 = "${name} RSSI ${rssi}"
     }
 
@@ -357,8 +352,8 @@ def setValues(deviceInfo) {
       def ssid = device.getDataValue("wlan0Ssid")
       def rssi = device.getDataValue("wlan0Rssi")
 
-      logInfo "ppp0 ${type} ${ssid} RSSI ${RSSI}"
-      sendEvent(name: type, value: "${ssid} RSSI ${rssi}")
+      logInfo "wlan0 ${type} ${ssid} RSSI ${RSSI}"
+      checkChanged('wifi', "${ssid} RSSI ${rssi}")
       state.wlan0 = "${ssid} RSSI ${rssi}"
     }
   }
@@ -367,14 +362,7 @@ def setValues(deviceInfo) {
   }
 }
 
-def checkChanged(attribute, newStatus) {
-  if (device.currentValue(attribute) != newStatus) {
-    logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus)
-  }
-}
-
-def checkChanged(attribute, newStatus, unit) {
+def checkChanged(attribute, newStatus, unit=null) {
   if (device.currentValue(attribute) != newStatus) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
     sendEvent(name: attribute, value: newStatus, unit: unit)
@@ -382,17 +370,10 @@ def checkChanged(attribute, newStatus, unit) {
 }
 
 def saveImportantInfo(deviceInfo) {
-  if (deviceInfo.deviceType == "security-panel" && device.getDataValue("security-panel-zid") != deviceInfo.zid) {
-    device.updateDataValue("security-panel-zid", deviceInfo.zid)
-  }
-  if (deviceInfo.deviceType == "adapter.zwave" && device.getDataValue("adapter.zwave-zid") != deviceInfo.zid) {
-    device.updateDataValue("adapter.zwave-zid", deviceInfo.zid)
-  }
-  if (deviceInfo.deviceType == "hub.redsky" && device.getDataValue("hub.redsky-zid") != deviceInfo.zid) {
-    device.updateDataValue("hub.redsky-zid", deviceInfo.zid)
-  }
-  if (deviceInfo.deviceType == "access-code.vault" && device.getDataValue("access-code.vault-zid") != deviceInfo.zid) {
-    device.updateDataValue("access-code.vault-zid", deviceInfo.zid)
+  for(deviceType in ['access-code.vault', 'adapter.zwave', 'hub.redsky', 'security-panel']) {
+    if (deviceInfo.deviceType == deviceType && device.getDataValue("${deviceType}-zid") != deviceInfo.zid) {
+      device.updateDataValue("${deviceType}-zid", deviceInfo.zid)
+    }
   }
 }
 

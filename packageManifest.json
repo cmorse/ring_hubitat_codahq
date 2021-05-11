@@ -4,7 +4,7 @@
   "version": "0.3.5",
   "minimumHEVersion": "0.0",
   "dateReleased": "2020-05-11",
-  "releaseNotes": "Improve robustness of connection watchdog",
+  "releaseNotes": "Improve robustness of connection watchdog. Remove unnecessary safe object traversal. Reduce repetition in the code",
   "apps": [
     {
       "id": "981fa0e5-b7c7-4459-a9ba-7ccdc51faa55",
